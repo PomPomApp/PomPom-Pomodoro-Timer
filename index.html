@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus Timer</title>
+<meta name="description" content="A simple Pomodoro focus timer. Work in focused sessions and rest with short and long breaks.">
+<style>
+  :root {
+    --background-color: #ffffff;
+    --foreground-color: #1c1c1e;
+    --border-color: #c3c3c3;
+    --track-color: #c8c8c8;
+    --page-color: #f6f5f3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background-color: #1c1c1e;
+      --foreground-color: #f2f2f2;
+      --border-color: #48484a;
+      --track-color: #3a3a3c;
+      --page-color: #121214;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 1.5rem;
+    background: var(--page-color);
+    color: var(--foreground-color);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  p { margin: 0; }
+
+  .pomodoro {
+    display: flex; flex-direction: column; align-items: center; gap: 1.75rem;
+    width: 100%; max-width: 28rem; padding: 2rem;
+    border: 1px solid var(--border-color); border-radius: 1.75rem;
+    background: var(--background-color);
+    --ring-color: #ec5e39;
+  }
+  .pomodoro[data-mode='short'] { --ring-color: #2f9e6e; }
+  .pomodoro[data-mode='long']  { --ring-color: #2f6fe5; }
+
+  .tabs { display: flex; gap: .25rem; width: 100%; padding: .25rem; border: 1px solid var(--border-color); border-radius: 999px; }
+  .tab {
+    display: inline-flex; flex: 1; justify-content: center; align-items: center; gap: .4rem;
+    padding: .5rem .25rem; border: none; border-radius: 999px; background: transparent;
+    color: var(--foreground-color); font: inherit; font-weight: 600; font-size: .8125rem; white-space: nowrap;
+    cursor: pointer; transition: background .2s ease, color .2s ease;
+  }
+  .tab[aria-selected='true'] { background: var(--ring-color); color: #fff; }
+  .tab:focus-visible { outline: 3px solid var(--ring-color); outline-offset: 2px; }
+  .count {
+    padding: 0 .45rem; border-radius: 999px; background: rgb(128 128 128 / .2);
+    font-weight: 700; font-size: .7rem; line-height: 1.4; font-variant-numeric: tabular-nums;
+  }
+  .tab[aria-selected='true'] .count { background: rgb(255 255 255 / .28); }
+
+  .mode-label { font-weight: 600; font-size: 1.125rem; }
+
+  .ring-wrapper { position: relative; aspect-ratio: 1; width: 16rem; max-width: 100%; }
+  .ring-circ { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring-track, .ring-progress { fill: none; stroke-width: 6; }
+  .ring-track { stroke: var(--track-color); }
+  .ring-progress { stroke: var(--ring-color); stroke-linecap: round; transition: stroke .3s ease; }
+  .time {
+    position: absolute; inset: 0; display: flex; justify-content: center; align-items: center;
+    font-weight: 700; font-size: 3rem; font-variant-numeric: tabular-nums;
+  }
+
+  .controls { display: flex; justify-content: center; align-items: center; gap: 1rem; }
+  .btn {
+    display: inline-flex; justify-content: center; align-items: center;
+    border: none; border-radius: 50%; cursor: pointer;
+    transition: transform .15s ease, opacity .15s ease;
+  }
+  .btn[hidden] { display: none; }
+  .btn:hover { transform: scale(1.06); }
+  .btn:active { transform: scale(.96); }
+  .btn:focus-visible { outline: 3px solid var(--ring-color); outline-offset: 3px; }
+  .btn svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .btn-main { width: 4.5rem; height: 4.5rem; background: var(--ring-color); color: #fff; }
+  .btn-main svg { width: 1.75rem; height: 1.75rem; }
+  .btn-secondary { width: 3.25rem; height: 3.25rem; border: 1px solid var(--border-color); background: var(--background-color); color: var(--foreground-color); }
+  .btn-secondary svg { width: 1.25rem; height: 1.25rem; }
+
+  .cycle { display: flex; flex-direction: column; align-items: center; gap: .5rem; }
+  .dots { display: flex; gap: .5rem; }
+  .dot { width: .75rem; height: .75rem; border: 2px solid var(--ring-color); border-radius: 50%; transition: background .2s ease; }
+  .dot.done { background: var(--ring-color); }
+  .cycle-text { opacity: .7; font-size: .875rem; }
+
+  @media (prefers-reduced-motion: reduce) { .btn, .tab, .dot, .ring-progress { transition: none; } }
+</style>
+</head>
+<body>
+  <main class="pomodoro" id="pomodoro" data-mode="focus">
+    <div class="tabs" role="tablist" aria-label="Timer mode">
+      <button type="button" class="tab" role="tab" data-mode="focus" aria-selected="true">Focus <span class="count" id="count-focus">0</span></button>
+      <button type="button" class="tab" role="tab" data-mode="short" aria-selected="false">Short break <span class="count" id="count-short">0</span></button>
+      <button type="button" class="tab" role="tab" data-mode="long" aria-selected="false">Long break <span class="count" id="count-long">0</span></button>
+    </div>
+
+    <p class="mode-label" id="mode-label">Focus session</p>
+
+    <div class="ring-wrapper">
+      <svg class="ring-circ" viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="ring-track" cx="60" cy="60" r="54"></circle>
+        <circle class="ring-progress" id="ring-progress" cx="60" cy="60" r="54"></circle>
+      </svg>
+      <div class="time" id="time" role="timer" aria-live="off">25:00</div>
+    </div>
+
+    <div class="controls">
+      <button type="button" class="btn btn-main" id="btn-pause" aria-label="Pause timer" hidden>
+        <svg viewBox="0 0 24 24"><rect x="14" y="3" width="5" height="18" rx="1"/><rect x="5" y="3" width="5" height="18" rx="1"/></svg>
+      </button>
+      <button type="button" class="btn btn-secondary" id="btn-stop" aria-label="Stop timer" hidden>
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+      </button>
+      <button type="button" class="btn btn-main" id="btn-start" aria-label="Start timer">
+        <svg viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+      </button>
+      <button type="button" class="btn btn-secondary" id="btn-reset" aria-label="Reset everything" hidden>
+        <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+      </button>
+    </div>
+
+    <div class="cycle">
+      <div class="dots" id="dots" aria-hidden="true">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      </div>
+      <p class="cycle-text" id="cycle-text">Session #1</p>
+    </div>
+  </main>
+
+<script>
+(() => {
+  const DURATIONS = { focus: 25 * 60, short: 5 * 60, long: 15 * 60 }
+  const LONG_BREAK_EVERY = 4
+  const STORAGE_KEY = 'pomodoro_state'
+  const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+  const LABELS = { focus: 'Focus session', short: 'Short break', long: 'Long break' }
+
+  function writeState(value) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...value, savedAt: Date.now() })) } catch {}
+  }
+  function readState() {
+    try {
+      const data = JSON.parse(localStorage.getItem(STORAGE_KEY))
+      if (!data || !(data.mode in DURATIONS)) return null
+      if (Date.now() - data.savedAt > MAX_AGE_MS) return null
+      return data
+    } catch { return null }
+  }
+  function clearState() {
+    try { localStorage.removeItem(STORAGE_KEY) } catch {}
+  }
+
+  const $ = (id) => document.getElementById(id)
+  const root = $('pomodoro')
+  const timeEl = $('time'), labelEl = $('mode-label'), ring = $('ring-progress')
+  const btnStart = $('btn-start'), btnPause = $('btn-pause'), btnStop = $('btn-stop'), btnReset = $('btn-reset')
+  const tabs = [...document.querySelectorAll('.tab')]
+  const dots = [...document.querySelectorAll('.dot')]
+  const cycleText = $('cycle-text')
+  const countEls = { focus: $('count-focus'), short: $('count-short'), long: $('count-long') }
+
+  const CIRCUMFERENCE = 2 * Math.PI * 54
+  ring.style.strokeDasharray = String(CIRCUMFERENCE)
+
+  let mode = 'focus'
+  let total = DURATIONS.focus
+  let remainingMs = total * 1000
+  let running = false
+  let endTime = 0
+  let rafId, interval
+  const counts = { focus: 0, short: 0, long: 0 }
+
+  const format = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+  const getRemainingMs = () => (running ? Math.max(0, endTime - Date.now()) : remainingMs)
+  const save = () => writeState({ mode, running, endTime, remainingMs: getRemainingMs(), counts: { ...counts } })
+
+  function renderRing() {
+    const elapsed = 1 - getRemainingMs() / (total * 1000)
+    ring.style.strokeDashoffset = String(CIRCUMFERENCE * (1 - elapsed))
+  }
+
+  function renderText() {
+    const secs = Math.ceil(getRemainingMs() / 1000)
+    timeEl.textContent = format(secs)
+    document.title = running ? `${format(secs)} · ${LABELS[mode]}` : 'Focus Timer'
+  }
+
+  function renderControls() {
+    const started = remainingMs !== total * 1000
+    btnStart.hidden = running
+    btnPause.hidden = !running
+    btnStop.hidden = running || !started
+    btnReset.hidden = running || !started
+  }
+
+  function renderCounters() {
+    for (const m in counts) countEls[m].textContent = counts[m]
+    const inCycle = counts.focus % LONG_BREAK_EVERY
+    dots.forEach((d, i) => d.classList.toggle('done', i < inCycle))
+    cycleText.textContent = mode === 'focus'
+      ? `Session #${counts.focus + 1}`
+      : `${counts.focus} focus session${counts.focus === 1 ? '' : 's'} done`
+  }
+
+  function renderAll() { renderText(); renderRing(); renderControls(); renderCounters() }
+
+  function setMode(next) {
+    mode = next
+    total = DURATIONS[next]
+    remainingMs = total * 1000
+    root.dataset.mode = next
+    labelEl.textContent = LABELS[next]
+    tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.mode === next)))
+  }
+
+  function stopLoops() {
+    cancelAnimationFrame(rafId)
+    clearInterval(interval)
+    rafId = interval = undefined
+  }
+
+  function startLoops() {
+    interval = setInterval(() => { if (getRemainingMs() <= 0) complete() }, 250)
+    rafId = requestAnimationFrame(frame)
+  }
+
+  function frame() {
+    if (!running) return
+    renderRing(); renderText()
+    rafId = requestAnimationFrame(frame)
+  }
+
+  function complete() {
+    stopLoops()
+    running = false
+    counts[mode] += 1
+    setMode(mode === 'focus' ? (counts.focus % LONG_BREAK_EVERY === 0 ? 'long' : 'short') : 'focus')
+    renderAll(); save()
+  }
+
+  function start() {
+    if (running) return
+    running = true
+    endTime = Date.now() + remainingMs
+    startLoops(); renderControls(); save()
+  }
+
+  function pause() {
+    if (!running) return
+    remainingMs = getRemainingMs()
+    running = false
+    stopLoops(); renderAll(); save()
+  }
+
+  function stop() {
+    stopLoops(); running = false
+    remainingMs = total * 1000
+    renderAll(); save()
+  }
+
+  function reset() {
+    stopLoops(); running = false
+    counts.focus = counts.short = counts.long = 0
+    setMode('focus'); renderAll(); clearState()
+  }
+
+  function switchTo(next) {
+    if (next === mode && !running) return
+    stopLoops(); running = false
+    setMode(next); renderAll(); save()
+  }
+
+  const saved = readState()
+  if (saved) {
+    Object.assign(counts, saved.counts)
+    setMode(saved.mode)
+    if (saved.running) {
+      if (saved.endTime > Date.now()) {
+        remainingMs = saved.endTime - Date.now()
+        running = true
+        endTime = saved.endTime
+        startLoops()
+      } else {
+        complete()
+      }
+    } else {
+      remainingMs = Math.min(Math.max(saved.remainingMs, 0), total * 1000)
+    }
+  }
+
+  tabs.forEach((t) => t.addEventListener('click', () => switchTo(t.dataset.mode)))
+  btnStart.addEventListener('click', start)
+  btnPause.addEventListener('click', pause)
+  btnStop.addEventListener('click', stop)
+  btnReset.addEventListener('click', reset)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && running) {
+      if (getRemainingMs() <= 0) complete()
+      renderAll()
+    }
+  })
+  renderAll()
+})()
+</script>
+</body>
+</html>
