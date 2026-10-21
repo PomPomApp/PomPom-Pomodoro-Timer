@@ -1,4 +1,4 @@
-# 🍅 Pomodoro Focus Timer
+# 🍅 Simple Pomodoro Timer
 
 A tiny, open-source Pomodoro timer in **one HTML file**. Easy setup, no dependencies, no tracking.
 
